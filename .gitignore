@@ -1,0 +1,24 @@
+*.pyc
+
+
+# Environment variables
+.env
+
+# Virtual environment
+.venv
+
+# Cache and output files
+*.json
+*.xls
+*.xlsx
+*.csv
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# IDE files
+.vscode/
+.idea/
+
+# Lock files
+uv.lock
