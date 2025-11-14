@@ -1,5 +1,6 @@
 [project]
-name = "kita2"
+name = "kita_stundenliste"
+authors = [{"name" = "Michael Adams"}]
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
