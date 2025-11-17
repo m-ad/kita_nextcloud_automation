@@ -172,7 +172,9 @@ def upload_to_table(
 
     created_row_ids: List[int] = []
     for payload in tqdm(
-        _iter_row_payloads(dataframe, column_map), desc="Uploading rows"
+        _iter_row_payloads(dataframe, column_map),
+        desc="Uploading rows",
+        total=len(dataframe),
     ):
         response = _request(
             "POST", f"index.php/apps/tables/api/1/tables/{table_id}/rows", json=payload
@@ -187,7 +189,9 @@ def upload_to_table(
 
 if __name__ == "__main__":
     # Example usage: read a CSV and push its contents to a table.
-    csvfile = "family_hours_report.csv"
+    from pathlib import Path
+
+    csvfile = Path(__file__).parent.parent / "family_hours_report.csv"
     if os.path.exists(csvfile):
         hours_df = pd.read_csv(csvfile)
         upload_to_table(table_id=72, dataframe=hours_df, replace=True)
