@@ -22,3 +22,6 @@
 
 # Lock files
 uv.lock
+
+# Other
+.ruff_cache/
