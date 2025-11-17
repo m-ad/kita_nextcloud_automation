@@ -12,9 +12,9 @@ from transform.transform_data import create_family_hours_table
 load_dotenv()
 
 # Environment variables for table IDs
-HOURS_TABLE_ID = int(os.getenv("HOURS_TABLE_ID"))
-NAMES_TABLE_ID = int(os.getenv("NAMES_TABLE_ID"))
-FAMILY_HOURS_TABLE_ID = int(os.getenv("FAMILY_HOURS_TABLE_ID"))
+HOURS_TABLE_ID = int(os.getenv("HOURS_TABLE_ID"))  # pyright: ignore[reportArgumentType]
+NAMES_TABLE_ID = int(os.getenv("NAMES_TABLE_ID"))  # pyright: ignore[reportArgumentType]
+FAMILY_HOURS_TABLE_ID = int(os.getenv("FAMILY_HOURS_TABLE_ID"))  # pyright: ignore[reportArgumentType]
 KITA_YEAR = int(os.getenv("KITA_YEAR", "2025"))
 
 if __name__ == "__main__":

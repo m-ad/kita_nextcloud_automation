@@ -5,37 +5,12 @@ OpenAPI definition available at https://raw.githubusercontent.com/nextcloud/tabl
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, cast
 
-import dotenv
 import pandas as pd
-import requests
-from requests.auth import HTTPBasicAuth
 from tqdm import tqdm
 
-dotenv.load_dotenv()
-
-BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
-NEXTCLOUD_USER = os.getenv("NEXTCLOUD_USER", "")
-NEXTCLOUD_PASSWORD = os.getenv("NEXTCLOUD_PASSWORD", "")
-
-
-def _require_credentials() -> HTTPBasicAuth:
-    """Return the HTTP auth object, ensuring configuration exists."""
-    if not BASE_URL:
-        raise RuntimeError("BASE_URL is not configured")
-    if not NEXTCLOUD_USER or not NEXTCLOUD_PASSWORD:
-        raise RuntimeError("NEXTCLOUD_USER or NEXTCLOUD_PASSWORD is not configured")
-    return HTTPBasicAuth(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD)
-
-
-def _request(method: str, endpoint: str, **kwargs) -> requests.Response:
-    """Execute an authenticated HTTP request against the Tables API."""
-    auth = _require_credentials()
-    url = f"{BASE_URL}/{endpoint.lstrip('/')}"
-    response = requests.request(method, url, auth=auth, **kwargs)
-    response.raise_for_status()
-    return response
+from ._client import request as _request
 
 
 def _get_columns(table_id: int) -> List[Dict[str, Any]]:
@@ -68,12 +43,13 @@ def _iter_row_payloads(
     for _, row in dataframe.iterrows():
         payload: Dict[str, Any] = {}
         for column_name, raw_value in row.items():
-            if column_name not in column_map:
+            column_key = cast(str, column_name)
+            if column_key not in column_map:
                 continue
             normalized = _normalize_value(raw_value)
             if normalized is None:
                 continue
-            payload[str(column_map[column_name])] = normalized
+            payload[str(column_map[column_key])] = normalized
         if payload:
             yield {"data": payload}
 
