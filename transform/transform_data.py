@@ -5,6 +5,7 @@ import pandas as pd
 def create_family_hours_table(
     df_hours: pd.DataFrame,
     df_names: pd.DataFrame,
+    kita_year: int,
 ) -> pd.DataFrame:
     """Create a family hours table by merging hours data with names data.
 
@@ -29,8 +30,10 @@ def create_family_hours_table(
         (True, 2): 60,
     }
 
-    # filter for Kita year 2025/2026
-    df_hours = df_hours.astype({"Datum": "datetime64[s]"}).query("Datum > '2025-09-01'")
+    # filter for Kita year
+    df_hours = df_hours.astype({"Datum": "datetime64[s]"}).query(
+        f"'{kita_year}-09-01'<Datum<'{kita_year + 1}-09-01'"
+    )
 
     # Add family column
     df_names = df_names.assign(
@@ -38,7 +41,7 @@ def create_family_hours_table(
             (df_names["Nachname Mutter"] == df_names["Nachname Vater"])
             | df_names["Nachname Vater"].isna(),
             df_names["Nachname Mutter"],
-            df_names["Nachname Mutter"] + " + " + df_names["Nachname Vater"],
+            df_names["Nachname Mutter"] + " & " + df_names["Nachname Vater"],
         )
     ).assign(alleinerziehend=lambda x: x["Nachname Vater"].isna())
     # TODO: This ignores the case of single-parent fathers for now!
@@ -79,8 +82,9 @@ def create_family_hours_table(
         .groupby(["Familie", "alleinerziehend", "target_hours", "n_children"])
         .sum(numeric_only=True)
         .reset_index()
+        .drop(columns=["alleinerziehend", "n_children"])
         .assign(progress=lambda x: x["actual_hours"] / x["target_hours"] * 100)
-        .astype({"n_children": int, "progress": int})
+        .astype({"progress": int})
         .sort_values(by="progress", ascending=False)
         .reset_index(drop=True)
         .rename(
@@ -88,10 +92,10 @@ def create_family_hours_table(
                 "target_hours": "Stunden SOLL",
                 "actual_hours": "Stunden IST",
                 "progress": "Fortschritt",
-                "n_children": "Anzahl Kinder",
-            }
+                # "n_children": "Anzahl Kinder",
+            },
+            errors="ignore",
         )
         .assign(Fortschritt=lambda x: np.minimum(x["Fortschritt"], 100))
-        .drop(columns="alleinerziehend")
     )
     return family_hours
