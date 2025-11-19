@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+# Common install locations the installer may use
+USER_BIN="$HOME/.local/bin"
+USR_BIN="/usr/local/bin"
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -13,7 +17,19 @@ ensure_uv() {
     return 0
   fi
 
-  echo "Installing uv via official installer (astral.sh)"
+  if [ -x "$USER_BIN/uv" ]; then
+    export PATH="$USER_BIN:$PATH"
+    echo "Found uv at $USER_BIN/uv; added to PATH"
+    return 0
+  fi
+
+  if [ -x "$USR_BIN/uv" ]; then
+    export PATH="$USR_BIN:$PATH"
+    echo "Found uv at $USR_BIN/uv; added to PATH"
+    return 0
+  fi
+
+  echo "Installing uv via official installer"
   if command_exists curl; then
     curl -LsSf https://astral.sh/uv/install.sh | sh || {
       echo "curl installer failed" >&2
@@ -25,20 +41,16 @@ ensure_uv() {
       return 1
     }
   else
-    echo "Neither curl nor wget available to run the installer" >&2
+    echo "Neither curl nor wget available" >&2
     return 1
   fi
 
-  # Common install locations the installer may use — add them to PATH for this session if present
-  USER_BIN="$HOME/.local/bin"
-  USR_BIN="/usr/local/bin"
   if [ -d "$USER_BIN" ] && [[ ":$PATH:" != *":$USER_BIN:"* ]]; then
     export PATH="$USER_BIN:$PATH"
-    echo "Added $USER_BIN to PATH for this session"
   fi
+
   if [ -d "$USR_BIN" ] && [[ ":$PATH:" != *":$USR_BIN:"* ]]; then
     export PATH="$USR_BIN:$PATH"
-    echo "Added $USR_BIN to PATH for this session"
   fi
 
   if command_exists uv; then
