@@ -57,7 +57,6 @@ def create_family_hours_table(
     )
 
     # create family hours table
-    # TODO: break this up for better readability and documentation
     family_hours = (
         df_names[
             [
@@ -67,8 +66,16 @@ def create_family_hours_table(
                 "Nextcloudaccount Vater",
             ]
         ]
-        .melt(id_vars=["Familie", "alleinerziehend"], value_name="nextcloud_account")
-        .drop(columns="variable")
+        .drop_duplicates(
+            subset=["Familie"]
+        )  # important! there is one row per child in df_names, so we need to drop duplicates to prevent double/triple counting
+        .assign(
+            stunden1=lambda x: x["Nextcloudaccount Mutter"].map(hours_dict).fillna(0)
+        )
+        .assign(
+            stunden2=lambda x: x["Nextcloudaccount Vater"].map(hours_dict).fillna(0)
+        )
+        .assign(stunden_summe=lambda x: x["stunden1"] + x["stunden2"])
         .assign(n_children=lambda x: x["Familie"].map(children_count))
         .assign(
             target_hours=lambda x: x.apply(
@@ -78,24 +85,30 @@ def create_family_hours_table(
                 axis=1,
             )
         )
-        .assign(actual_hours=lambda x: x["nextcloud_account"].map(hours_dict).fillna(0))
-        .groupby(["Familie", "alleinerziehend", "target_hours", "n_children"])
-        .sum(numeric_only=True)
-        .reset_index()
-        .drop(columns=["alleinerziehend", "n_children"])
-        .assign(progress=lambda x: x["actual_hours"] / x["target_hours"] * 100)
+        .assign(
+            progress=lambda x: np.round(
+                np.minimum(100, x["stunden_summe"] / x["target_hours"] * 100)
+            )
+        )
         .astype({"progress": int})
         .sort_values(by="progress", ascending=False)
-        .reset_index(drop=True)
+        .drop(
+            columns=[
+                "alleinerziehend",
+                "n_children",
+                "Nextcloudaccount Mutter",
+                "Nextcloudaccount Vater",
+            ]
+        )
         .rename(
             columns={
                 "target_hours": "Stunden SOLL",
-                "actual_hours": "Stunden IST",
+                "stunden_summe": "Stunden IST",
                 "progress": "Fortschritt",
-                # "n_children": "Anzahl Kinder",
+                "stunden1": "Stunden Mutter",
+                "stunden2": "Stunden Vater",
             },
             errors="ignore",
         )
-        .assign(Fortschritt=lambda x: np.minimum(x["Fortschritt"], 100))
     )
     return family_hours
