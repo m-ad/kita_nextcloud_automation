@@ -7,6 +7,10 @@ set -euo pipefail
 # Load common helpers
 source "$(dirname "$0")/_common.sh"
 
+# Directory of this script and repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Read positional args or fall back to defaults
 BACKUP_PATH_DEFAULT="./backups"
 KEEP_N_BACKUPS_DEFAULT="2"
@@ -22,6 +26,9 @@ echo "Using KEEP_N_BACKUPS=$KEEP_N_BACKUPS"
 
  # Ensure uv is installed (see  _common.sh)
 ensure_uv
+
+echo "Changing to repo root: $REPO_ROOT"
+cd "$REPO_ROOT"
 
 echo "Running: uv run backup_tables.py"
 uv run backup_tables.py
