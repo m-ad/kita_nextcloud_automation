@@ -32,7 +32,7 @@ def create_family_hours_table(
 
     # filter for Kita year
     df_hours = df_hours.astype({"Datum": "datetime64[s]"}).query(
-        f"'{kita_year}-09-01'<Datum<'{kita_year + 1}-09-01'"
+        f"'{kita_year}-09-01'<=Datum<'{kita_year + 1}-09-01'"
     )
 
     # Add family column
