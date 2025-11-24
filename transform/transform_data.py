@@ -39,11 +39,15 @@ def create_family_hours_table(
     df_names = df_names.assign(
         Familie=np.where(
             (df_names["Nachname Mutter"] == df_names["Nachname Vater"])
-            | df_names["Nachname Vater"].isna(),
+            | df_names["Nachname Vater"].isna()
+            | df_names["Nachname Vater"].eq(""),
             df_names["Nachname Mutter"],
             df_names["Nachname Mutter"] + " & " + df_names["Nachname Vater"],
         )
-    ).assign(alleinerziehend=lambda x: x["Nachname Vater"].isna())
+    ).assign(
+        alleinerziehend=lambda x: x["Nachname Vater"].isna()
+        | x["Nachname Vater"].eq("")
+    )
     # TODO: This ignores the case of single-parent fathers for now!
 
     # create a dictionary Nextcloud ID -> total hours worked, e.g. {"m.meier": 37.5, "e.schmidt": 12.0}
