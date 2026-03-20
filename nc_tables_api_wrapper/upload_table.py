@@ -5,12 +5,14 @@ OpenAPI definition available at https://raw.githubusercontent.com/nextcloud/tabl
 from __future__ import annotations
 
 import os
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List, cast
 
 import pandas as pd
 from tqdm import tqdm
 
-from ._client import request as _request
+from ._client import NEXTCLOUD_USER, request as _request
 
 
 def _get_columns(table_id: int) -> List[Dict[str, Any]]:
@@ -54,15 +56,22 @@ def _iter_row_payloads(
             yield {"data": payload}
 
 
-def clear_table(table_id: int, batch_size: int = 100) -> int:
-    """Delete all rows in a table.
+# ---------------------------------------------------------------------------
+# Clearing rows
+# ---------------------------------------------------------------------------
+
+
+def clear_table(table_id: int, batch_size: int = 100, max_workers: int = 5) -> int:
+    """Delete all rows in a table using parallel requests.
 
     Parameters
     ----------
     table_id:
         Target table identifier.
     batch_size:
-        Number of rows to fetch per round-trip while clearing.
+        Number of rows to fetch per round-trip while collecting IDs.
+    max_workers:
+        Maximum number of concurrent DELETE requests.
 
     Returns
     -------
@@ -70,28 +79,146 @@ def clear_table(table_id: int, batch_size: int = 100) -> int:
         Number of rows that were deleted.
     """
 
-    deleted = 0
+    # Phase 1: collect all row IDs
+    all_row_ids: List[int] = []
+    offset = 0
     while True:
         response = _request(
             "GET",
-            f"index.php/apps/tables/api/1/tables/{table_id}/rows?limit={batch_size}&offset=0",
+            f"index.php/apps/tables/api/1/tables/{table_id}/rows?limit={batch_size}&offset={offset}",
         )
         rows = response.json()
         if not rows:
             break
+        all_row_ids.extend(row["id"] for row in rows if "id" in row)
+        if len(rows) < batch_size:
+            break
+        offset += batch_size
 
-        for row in tqdm(rows, desc="Deleting rows"):
-            row_id = row.get("id")
-            if row_id is None:
-                continue
-            _request("DELETE", f"index.php/apps/tables/api/1/rows/{row_id}")
+    if not all_row_ids:
+        return 0
+
+    # Phase 2: delete in parallel
+    def _delete_row(row_id: int) -> int:
+        _request("DELETE", f"index.php/apps/tables/api/1/rows/{row_id}")
+        return row_id
+
+    deleted = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_delete_row, rid) for rid in all_row_ids]
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Deleting rows"):
+            future.result()  # raises on failure
             deleted += 1
 
     return deleted
 
 
+# ---------------------------------------------------------------------------
+# CSV import via WebDAV + import endpoint
+# ---------------------------------------------------------------------------
+
+_TEMP_REMOTE_PATH = "/kita_automation_temp_import.csv"
+
+
+def _webdav_endpoint(remote_path: str) -> str:
+    """Return the WebDAV endpoint for *remote_path* (relative to user root)."""
+    return f"remote.php/dav/files/{NEXTCLOUD_USER}{remote_path}"
+
+
+def import_to_table(
+    table_id: int,
+    dataframe: pd.DataFrame,
+    *,
+    remote_path: str = _TEMP_REMOTE_PATH,
+) -> Dict[str, Any]:
+    """Upload a DataFrame as CSV via WebDAV and import it in one API call.
+
+    Parameters
+    ----------
+    table_id:
+        Target table identifier.
+    dataframe:
+        Data to upload.  Column names must match the target table titles.
+    remote_path:
+        Nextcloud-internal path (relative to user files root) for the
+        temporary CSV.  Cleaned up automatically after import.
+
+    Returns
+    -------
+    dict
+        The ``ImportState`` object returned by the API.
+    """
+
+    csv_bytes = dataframe.to_csv(index=False).encode("utf-8")
+    webdav_ep = _webdav_endpoint(remote_path)
+
+    # Upload CSV to Nextcloud Files via WebDAV
+    _request("PUT", webdav_ep, data=csv_bytes, headers={"Content-Type": "text/csv"})
+
+    try:
+        # Trigger server-side import
+        response = _request(
+            "POST",
+            f"index.php/apps/tables/api/1/import/table/{table_id}",
+            json={"path": remote_path, "createMissingColumns": False},
+        )
+        result: Dict[str, Any] = response.json()
+
+        errors = result.get("errors_count", 0) or 0
+        if errors:
+            warnings.warn(
+                f"Import completed with {errors} error(s): {result}",
+                stacklevel=2,
+            )
+
+        return result
+    finally:
+        # Always clean up the temporary file
+        try:
+            _request("DELETE", webdav_ep)
+        except Exception:
+            warnings.warn(
+                f"Failed to clean up temporary import file at {remote_path}",
+                stacklevel=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Row-by-row upload (fallback)
+# ---------------------------------------------------------------------------
+
+
+def _upload_rows_sequentially(
+    table_id: int, dataframe: pd.DataFrame, column_map: Dict[str, int]
+) -> List[int]:
+    """Insert rows one by one — used as fallback when CSV import fails."""
+    created_row_ids: List[int] = []
+    for payload in tqdm(
+        _iter_row_payloads(dataframe, column_map),
+        desc="Uploading rows",
+        total=len(dataframe),
+    ):
+        response = _request(
+            "POST", f"index.php/apps/tables/api/1/tables/{table_id}/rows", json=payload
+        )
+        row = response.json()
+        row_id = row.get("id")
+        if row_id is not None:
+            created_row_ids.append(row_id)
+    return created_row_ids
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
 def upload_to_table(
-    table_id: int, dataframe: pd.DataFrame, *, replace: bool = False
+    table_id: int,
+    dataframe: pd.DataFrame,
+    *,
+    replace: bool = False,
+    use_import: bool = True,
 ) -> List[int]:
     """Upload a DataFrame into a Nextcloud table.
 
@@ -105,11 +232,14 @@ def upload_to_table(
         the expected option identifiers.
     replace:
         When ``True``, the table is cleared before inserting new rows.
+    use_import:
+        When ``True`` (default), use the CSV import endpoint instead of
+        inserting rows one by one.  Falls back to row-by-row on failure.
 
     Returns
     -------
     list[int]
-        Row identifiers created by the API.
+        Row identifiers created by the API (empty list when using import).
 
     Example
     -------
@@ -146,21 +276,22 @@ def upload_to_table(
         print("Clearing table...")
         clear_table(table_id)
 
-    created_row_ids: List[int] = []
-    for payload in tqdm(
-        _iter_row_payloads(dataframe, column_map),
-        desc="Uploading rows",
-        total=len(dataframe),
-    ):
-        response = _request(
-            "POST", f"index.php/apps/tables/api/1/tables/{table_id}/rows", json=payload
-        )
-        row = response.json()
-        row_id = row.get("id")
-        if row_id is not None:
-            created_row_ids.append(row_id)
+    # --- Fast path: CSV import ---
+    if use_import:
+        try:
+            print("Importing via CSV...")
+            result = import_to_table(table_id, dataframe)
+            inserted = result.get("inserted_rows_count", 0) or 0
+            print(f"Import complete: {inserted} row(s) inserted.")
+            return []
+        except Exception as exc:
+            warnings.warn(
+                f"CSV import failed ({exc}), falling back to row-by-row upload.",
+                stacklevel=2,
+            )
 
-    return created_row_ids
+    # --- Slow path: row-by-row ---
+    return _upload_rows_sequentially(table_id, dataframe, column_map)
 
 
 if __name__ == "__main__":
