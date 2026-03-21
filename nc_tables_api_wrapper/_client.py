@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Dict, Optional
 
 import dotenv
@@ -16,6 +17,18 @@ BASE_URL = BASE_URL_RAW.rstrip("/")
 NEXTCLOUD_USER = os.getenv("NEXTCLOUD_USER", "") or ""
 NEXTCLOUD_PASSWORD = os.getenv("NEXTCLOUD_PASSWORD", "") or ""
 API_TIMEOUT = float(os.getenv("NEXTCLOUD_TIMEOUT", "30"))
+
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """Return a thread-local ``requests.Session`` with pre-configured auth."""
+    session: requests.Session | None = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.auth = require_credentials()
+        _thread_local.session = session
+    return session
 
 
 def require_credentials() -> HTTPBasicAuth:
@@ -95,7 +108,7 @@ def request(
         Response with ``raise_for_status`` already invoked to surface failures early.
     """
 
-    auth = require_credentials()
+    session = _get_session()
     url = build_url(endpoint, strip_base=strip_base)
     merged_headers = dict(headers or {})
     if ocs:
@@ -103,10 +116,9 @@ def request(
         merged_headers.setdefault("Accept", "application/json")
 
     timeout = kwargs.pop("timeout", API_TIMEOUT)
-    response = requests.request(
+    response = session.request(
         method,
         url,
-        auth=auth,
         headers=merged_headers,
         timeout=timeout,
         **kwargs,

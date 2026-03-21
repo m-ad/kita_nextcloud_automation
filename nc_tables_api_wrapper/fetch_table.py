@@ -5,17 +5,8 @@ OpenAPI definition available at https://raw.githubusercontent.com/nextcloud/tabl
 import ast
 
 import pandas as pd
-import requests
-from requests.auth import HTTPBasicAuth
 
-from ._client import (
-    API_TIMEOUT,
-    NEXTCLOUD_PASSWORD,
-    NEXTCLOUD_USER,
-)
-from ._client import (
-    BASE_URL_RAW as BASE_URL,
-)
+from ._client import request as _request
 
 
 def _parse_complex_value(value):
@@ -42,13 +33,7 @@ def fetch_data(endpoint: str) -> dict:
     Returns:
         dict: The JSON response from the API.
     """
-    url = f"{BASE_URL}/{endpoint}"
-    response = requests.get(
-        url,
-        auth=HTTPBasicAuth(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-        timeout=API_TIMEOUT,
-    )
-    response.raise_for_status()  # Raise an error for bad responses
+    response = _request("GET", endpoint)
     return response.json()
 
 
