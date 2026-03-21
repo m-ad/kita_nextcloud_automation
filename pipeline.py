@@ -1,5 +1,7 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from time import perf_counter
 
 from dotenv import load_dotenv
 
@@ -18,9 +20,15 @@ FAMILY_HOURS_TABLE_ID = int(os.getenv("FAMILY_HOURS_TABLE_ID"))  # pyright: igno
 KITA_YEAR = int(os.getenv("KITA_YEAR", "2025"))
 
 if __name__ == "__main__":
+    tic = perf_counter()
     print("Fetching source tables...")
-    hours_df = fetch_table_data(table_id=HOURS_TABLE_ID, explode=True)
-    names_df = fetch_table_data(table_id=NAMES_TABLE_ID)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        hours_future = executor.submit(
+            fetch_table_data, table_id=HOURS_TABLE_ID, explode=True
+        )
+        names_future = executor.submit(fetch_table_data, table_id=NAMES_TABLE_ID)
+        hours_df = hours_future.result()
+        names_df = names_future.result()
     print("Transforming data...")
     family_hours_df = create_family_hours_table(
         df_hours=hours_df,
@@ -47,4 +55,5 @@ if __name__ == "__main__":
             "emoji": "📊",
         },
     )
-    print("Done.")
+    toc = perf_counter()
+    print(f"Done. Total time: {toc - tic:.1f} seconds.")
