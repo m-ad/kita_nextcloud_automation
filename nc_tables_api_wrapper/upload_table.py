@@ -163,7 +163,13 @@ def import_to_table(
 
     _get_session().cookies.clear()
 
-    _request("PUT", webdav_ep, data=csv_bytes, headers={"Content-Type": "text/csv"})
+    _request(
+        "PUT",
+        webdav_ep,
+        data=csv_bytes,
+        headers={"Content-Type": "text/csv"},
+        timeout=60,
+    )
 
     try:
         # Trigger server-side import
@@ -171,6 +177,7 @@ def import_to_table(
             "POST",
             f"index.php/apps/tables/api/1/import/table/{table_id}",
             json={"path": remote_path, "createMissingColumns": False},
+            timeout=60,
         )
         result: Dict[str, Any] = response.json()
 
