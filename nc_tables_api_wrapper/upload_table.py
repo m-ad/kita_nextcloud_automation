@@ -12,7 +12,8 @@ from typing import Any, Dict, Iterable, List, cast
 import pandas as pd
 from tqdm import tqdm
 
-from ._client import NEXTCLOUD_USER, request as _request
+from ._client import NEXTCLOUD_USER
+from ._client import request as _request
 
 
 def _get_columns(table_id: int) -> List[Dict[str, Any]]:
@@ -106,7 +107,9 @@ def clear_table(table_id: int, batch_size: int = 100, max_workers: int = 5) -> i
     deleted = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_delete_row, rid) for rid in all_row_ids]
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Deleting rows"):
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Deleting rows"
+        ):
             future.result()  # raises on failure
             deleted += 1
 
@@ -152,7 +155,14 @@ def import_to_table(
     csv_bytes = dataframe.to_csv(index=False).encode("utf-8")
     webdav_ep = _webdav_endpoint(remote_path)
 
-    # Upload CSV to Nextcloud Files via WebDAV
+    # Upload CSV to Nextcloud Files via WebDAV.
+    # Clear session cookies first — cookies from prior Tables API calls
+    # cause Nextcloud to authenticate via session instead of Basic Auth,
+    # which fails on the WebDAV endpoint.
+    from ._client import _get_session
+
+    _get_session().cookies.clear()
+
     _request("PUT", webdav_ep, data=csv_bytes, headers={"Content-Type": "text/csv"})
 
     try:
