@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from time import time
 from typing import Any, Dict, Iterable, List, cast
 
 import pandas as pd
@@ -177,7 +178,7 @@ def import_to_table(
             "POST",
             f"index.php/apps/tables/api/1/import/table/{table_id}",
             json={"path": remote_path, "createMissingColumns": False},
-            timeout=60,
+            timeout=100,
         )
         result: Dict[str, Any] = response.json()
 
@@ -290,16 +291,21 @@ def upload_to_table(
         )
 
     if replace:
+        tic = time()
         print("Clearing table...")
         clear_table(table_id)
+        print(f"Table cleared in {time() - tic:.1f}s")
 
     # --- Fast path: CSV import ---
     if use_import:
         try:
+            tic = time()
             print("Importing via CSV...")
             result = import_to_table(table_id, dataframe)
             inserted = result.get("inserted_rows_count", 0) or 0
-            print(f"Import complete: {inserted} row(s) inserted.")
+            print(
+                f"Import complete: {inserted} row(s) inserted in {time() - tic:.1f}s."
+            )
             return []
         except Exception as exc:
             warnings.warn(
