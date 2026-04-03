@@ -29,19 +29,19 @@ if __name__ == "__main__":
         names_future = executor.submit(fetch_table_data, table_id=NAMES_TABLE_ID)
         hours_df = hours_future.result()
         names_df = names_future.result()
-    print("Transforming data...")
+    print(f"{perf_counter() - tic:.1f}s: Transforming data...")
     family_hours_df = create_family_hours_table(
         df_hours=hours_df,
         df_names=names_df,
         kita_year=KITA_YEAR,
     )
-    print("Uploading transformed data...")
+    print(f"{perf_counter() - tic:.1f}s: Uploading transformed data...")
     upload_to_table(
         table_id=FAMILY_HOURS_TABLE_ID,
         dataframe=family_hours_df,
         replace=True,
     )
-    print("Updating table properties...")
+    print(f"{perf_counter() - tic:.1f}s: Updating table properties...")
     timestamp = datetime.now().strftime("%d.%m.%Y um %H:%M Uhr")
     kita_year_progress_percent = int(
         (datetime.now() - datetime(KITA_YEAR, 9, 1)).days / 365 * 100
