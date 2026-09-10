@@ -19,6 +19,8 @@ NAMES_TABLE_ID = int(os.getenv("NAMES_TABLE_ID"))  # pyright: ignore[reportArgum
 FAMILY_HOURS_TABLE_ID = int(os.getenv("FAMILY_HOURS_TABLE_ID"))  # pyright: ignore[reportArgumentType]
 KITA_YEAR = int(os.getenv("KITA_YEAR", "2025"))
 
+print("KITA_YEAR:", KITA_YEAR)
+
 if __name__ == "__main__":
     tic = perf_counter()
     print("Fetching source tables...")
