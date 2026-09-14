@@ -37,6 +37,7 @@ if __name__ == "__main__":
         df_names=names_df,
         kita_year=KITA_YEAR,
     )
+    print(family_hours_df)
     print(f"{perf_counter() - tic:.1f}s: Uploading transformed data...")
     upload_to_table(
         table_id=FAMILY_HOURS_TABLE_ID,
@@ -46,16 +47,18 @@ if __name__ == "__main__":
     print(f"{perf_counter() - tic:.1f}s: Updating table properties...")
     timestamp = datetime.now().strftime("%d.%m.%Y um %H:%M Uhr")
     kita_year_progress_percent = int(
-        (datetime.now() - datetime(KITA_YEAR, 9, 1)).days / 365 * 100
+        (datetime.now() - datetime(KITA_YEAR, 9, 15)).days / 365 * 100
     )
-    write_table_properties(
-        table_id=FAMILY_HOURS_TABLE_ID,
-        properties={
-            "description": f"Automatisch aktualisiert am {timestamp}.<br>"
-            f"Fortschritt des Kita-Jahres {KITA_YEAR}/{KITA_YEAR + 1}: {kita_year_progress_percent}%.",
-            "title": f"Stundenliste {KITA_YEAR}/{KITA_YEAR + 1}",
-            "emoji": "📊",
-        },
+    print(
+        write_table_properties(
+            table_id=FAMILY_HOURS_TABLE_ID,
+            properties={
+                "description": f"Automatisch aktualisiert am {timestamp}.<br>"
+                f"Fortschritt des Kita-Jahres {KITA_YEAR}/{KITA_YEAR + 1}: {kita_year_progress_percent}%.",
+                "title": f"Stundenliste {KITA_YEAR}/{KITA_YEAR + 1}",
+                "emoji": "📊",
+            },
+        )
     )
     toc = perf_counter()
     print(f"Done. Total time: {toc - tic:.1f} seconds.")
