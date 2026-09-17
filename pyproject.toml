@@ -6,8 +6,19 @@ requires-python = ">=3.13"
 dependencies    = ["pandas>=2.3.3", "python-dotenv>=1.2.1", "requests>=2.32.5", "tqdm>=4.67.1"]
 
 [dependency-groups]
-dev = ["ipykernel>=7.1.0", "ruff>=0.14.5"]
+dev = [
+    "ipykernel>=7.1.0",
+    "pytest>=9.1.1",
+    "ruff>=0.14.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths  = ["tests"]
 
 [tool.ruff.lint]
 select = ["I", "E", "W", "S"]
 ignore = ["E501"]             # line too long
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]          # assert ist in Tests erwünscht

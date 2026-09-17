@@ -1,3 +1,4 @@
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -8,7 +9,12 @@ from dotenv import load_dotenv
 from nc_tables_api_wrapper.fetch_table import fetch_table_data
 from nc_tables_api_wrapper.table_properties import write_table_properties
 from nc_tables_api_wrapper.upload_table import upload_to_table
-from transform.transform_data import create_family_hours_table
+from transform.transform_data import (
+    IncompleteSourceDataError,
+    create_family_hours_table,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -32,7 +38,7 @@ if __name__ == "__main__":
         hours_df = hours_future.result()
         names_df = names_future.result()
     print(f"{perf_counter() - tic:.1f}s: Transforming data...")
-    family_hours_df = create_family_hours_table(
+    family_hours_df, defects_df = create_family_hours_table(
         df_hours=hours_df,
         df_names=names_df,
         kita_year=KITA_YEAR,
@@ -62,3 +68,9 @@ if __name__ == "__main__":
     )
     toc = perf_counter()
     print(f"Done. Total time: {toc - tic:.1f} seconds.")
+
+    # Der Lauf selbst war erfolgreich (die Tabelle ist aktuell). Unvollständige
+    # Quellzeilen werden trotzdem als Fehler gemeldet, damit sie nicht still
+    # untergehen, sondern eine Benachrichtigung auslösen.
+    if not defects_df.empty:
+        raise IncompleteSourceDataError(defects_df)
