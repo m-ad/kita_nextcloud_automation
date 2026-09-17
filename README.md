@@ -37,3 +37,17 @@ die Stundeliste. Mit dem Skript `scripts/run_pipeline.sh` oder mit `uv run pipel
 Pipeline angestoßen. Es werden die zwei EIngangstabellen gelesen, die Daten entsprechen transformiert
 und dann in die Ausgangstabelle geschrieben. Die IDs der jeweiligen Tabellen sind als Umgebungsvariablen
 oder in `.env` definiert.
+
+### Umgang mit unvollständigen Einträgen
+
+Zeilen der Adressliste, die (noch) nicht vollständig gepflegt sind, brechen die Pipeline nicht ab:
+Familien ohne ableitbaren Familiennamen, ohne benötigten Nextcloud-Account oder ohne hinterlegte
+SOLL-Stunden für ihre Kinderzahl werden verworfen und als Warnung geloggt. Die Stundenliste wird
+trotzdem hochgeladen; **erst danach** endet die Pipeline mit `IncompleteSourceDataError` und damit
+mit Exit-Code ungleich 0, sodass der Cronjob eine Benachrichtigung verschickt.
+
+## Tests
+
+```sh
+uv run pytest
+```

@@ -1,13 +1,78 @@
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class IncompleteSourceDataError(RuntimeError):
+    """Signalisiert verworfene Quellzeilen nach einem sonst erfolgreichen Lauf.
+
+    Wird bewusst erst *nach* dem Upload geworfen: die Stundenliste ist dann
+    aktuell, der Exit-Code ungleich 0 macht die verworfenen Zeilen aber
+    sichtbar, statt sie still zu überspringen.
+
+    Parameters
+    ----------
+    defects:
+        DataFrame mit den Spalten ``Eintrag`` und ``Grund``.
+    """
+
+    def __init__(self, defects: pd.DataFrame) -> None:
+        self.defects = defects
+        details = "\n".join(
+            f"  - {row.Eintrag}: {row.Grund}" for row in defects.itertuples(index=False)
+        )
+        super().__init__(
+            f"{len(defects)} unvollständige Zeile(n) in der Adressliste wurden "
+            f"verworfen:\n{details}"
+        )
+
+
+def _is_blank(value) -> bool:
+    """Prüfe, ob ein Zellwert leer ist (fehlend oder nur Leerzeichen)."""
+    return pd.isna(value) or str(value).strip() == ""
+
+
+def _defect_reasons(row: pd.Series, target_hours_dict: dict) -> list[str]:
+    """Sammle die Gründe, warum eine Familie nicht ausgewertet werden kann.
+
+    Parameters
+    ----------
+    row:
+        Eine Zeile der aggregierten Familientabelle.
+    target_hours_dict:
+        Die hinterlegten SOLL-Stunden je (alleinerziehend, Anzahl Kinder).
+
+    Returns
+    -------
+    list[str]
+        Leere Liste, wenn die Familie vollständig ist.
+    """
+    reasons = []
+    if _is_blank(row["Nextcloudaccount Mutter"]):
+        reasons.append("Nextcloudaccount Mutter fehlt")
+    if not row["alleinerziehend"] and _is_blank(row["Nextcloudaccount Vater"]):
+        reasons.append("Nextcloudaccount Vater fehlt")
+    if (row["alleinerziehend"], row["n_children"]) not in target_hours_dict:
+        reasons.append(
+            "keine SOLL-Stunden definiert für "
+            f"(alleinerziehend={row['alleinerziehend']}, Kinder={row['n_children']})"
+        )
+    return reasons
 
 
 def create_family_hours_table(
     df_hours: pd.DataFrame,
     df_names: pd.DataFrame,
     kita_year: int,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Create a family hours table by merging hours data with names data.
+
+    Unvollständig gepflegte Zeilen der Adressliste (fehlender Nachname der
+    Mutter, fehlende Nextcloud-Accounts, unbekannte Kinderzahl) brechen die
+    Auswertung nicht ab, sondern werden verworfen und protokolliert.
 
     Parameters
     ----------
@@ -18,8 +83,9 @@ def create_family_hours_table(
 
     Returns
     -------
-    pd.DataFrame
-        Merged DataFrame with family hours and names.
+    tuple[pd.DataFrame, pd.DataFrame]
+        Merged DataFrame with family hours and names sowie ein DataFrame der
+        verworfenen Zeilen mit den Spalten ``Eintrag`` und ``Grund``.
     """
     # Define target hours per week based on age and single-parent status
     target_hours_dict = {
@@ -29,6 +95,8 @@ def create_family_hours_table(
         (True, 1): 50,
         (True, 2): 60,
     }
+
+    defects: list[dict[str, str]] = []
 
     # filter for Kita year
     df_hours = df_hours.astype({"Datum": "datetime64[s]"}).query(
@@ -49,6 +117,24 @@ def create_family_hours_table(
         | x["Nachname Vater"].eq("")
     )
     # TODO: This ignores the case of single-parent fathers for now!
+
+    # Zeilen ohne Familiennamen (Nachname Mutter noch nicht eingepflegt) lassen
+    # sich keiner Familie zuordnen und müssen vor dem Gruppieren raus.
+    without_family = df_names["Familie"].map(_is_blank)
+    for _, row in df_names[without_family].iterrows():
+        kind = " ".join(
+            str(row[col])
+            for col in ("Vorname Kind", "Nachname Kind")
+            if not _is_blank(row[col])
+        )
+        defects.append(
+            {
+                # +1: der Index entspricht der (1-basierten) Zeile in Nextcloud
+                "Eintrag": f"Zeile {int(row.name) + 1}: {kind or 'ohne Kindsnamen'}",
+                "Grund": "Nachname Mutter fehlt, Familienname nicht ableitbar",
+            }
+        )
+    df_names = df_names[~without_family]
 
     # create a dictionary Nextcloud ID -> total hours worked, e.g. {"m.meier": 37.5, "e.schmidt": 12.0}
     hours_dict: dict[str, float] = (
@@ -81,13 +167,29 @@ def create_family_hours_table(
         )
         .assign(stunden_summe=lambda x: x["stunden1"] + x["stunden2"])
         .assign(n_children=lambda x: x["Familie"].map(children_count))
-        .assign(
-            target_hours=lambda x: x.apply(
-                lambda row: target_hours_dict[
-                    (row["alleinerziehend"], row["n_children"])
-                ],
-                axis=1,
+    )
+
+    # Unvollständige Familien aussortieren, bevor die SOLL-Stunden zugeordnet
+    # werden - sonst bricht der Lookup mit einem KeyError ab.
+    complete = []
+    for _, row in family_hours.iterrows():
+        reasons = _defect_reasons(row, target_hours_dict)
+        complete.append(not reasons)
+        if reasons:
+            defects.append(
+                {"Eintrag": f"Familie {row['Familie']}", "Grund": "; ".join(reasons)}
             )
+    family_hours = family_hours[np.array(complete, dtype=bool)]
+
+    family_hours = (
+        family_hours.assign(
+            # keine Series.apply: die liefert bei leerem Input kein brauchbares Ergebnis
+            target_hours=lambda x: [
+                target_hours_dict[(alleinerziehend, n_children)]
+                for alleinerziehend, n_children in zip(
+                    x["alleinerziehend"], x["n_children"]
+                )
+            ]
         )
         .assign(
             progress=lambda x: np.round(
@@ -115,4 +217,12 @@ def create_family_hours_table(
             errors="ignore",
         )
     )
-    return family_hours
+
+    for defect in defects:
+        logger.warning(
+            "Unvollständiger Eintrag verworfen - %s: %s",
+            defect["Eintrag"],
+            defect["Grund"],
+        )
+
+    return family_hours, pd.DataFrame(defects, columns=["Eintrag", "Grund"])
